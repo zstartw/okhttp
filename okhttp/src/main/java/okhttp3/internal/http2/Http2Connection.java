@@ -71,7 +71,7 @@ public final class Http2Connection implements Closeable {
   // operations must synchronize on 'this' last. This ensures that we never
   // wait for a blocking operation while holding 'this'.
 
-  private static final int OKHTTP_CLIENT_WINDOW_SIZE = 16 * 1024 * 1024;
+  static final int OKHTTP_CLIENT_WINDOW_SIZE = 16 * 1024 * 1024;
 
   /**
    * Shared executor to send notifications of incoming streams. This executor requires multiple
@@ -310,14 +310,6 @@ public final class Http2Connection implements Closeable {
       byteCount -= toWrite;
       writer.data(outFinished && byteCount == 0, streamId, buffer, toWrite);
     }
-  }
-
-  /**
-   * {@code delta} will be negative if a settings frame initial window is smaller than the last.
-   */
-  void addBytesToWriteWindow(long delta) {
-    bytesLeftInWriteWindow += delta;
-    if (delta > 0) Http2Connection.this.notifyAll();
   }
 
   void writeSynResetLater(final int streamId, final ErrorCode errorCode) {
@@ -709,7 +701,6 @@ public final class Http2Connection implements Closeable {
         if (peerInitialWindowSize != -1 && peerInitialWindowSize != priorWriteWindowSize) {
           delta = peerInitialWindowSize - priorWriteWindowSize;
           if (!receivedInitialPeerSettings) {
-            addBytesToWriteWindow(delta);
             receivedInitialPeerSettings = true;
           }
           if (!streams.isEmpty()) {

@@ -2031,11 +2031,27 @@ public final class CallTest {
 
   @Test public void cancelImmediatelyAfterEnqueue() throws Exception {
     server.enqueue(new MockResponse());
+    final CountDownLatch latch = new CountDownLatch(1);
+    client = client.newBuilder()
+        .addNetworkInterceptor(new Interceptor() {
+          @Override public Response intercept(Chain chain) throws IOException {
+            try {
+              latch.await();
+            } catch (InterruptedException e) {
+              throw new AssertionError(e);
+            }
+            return chain.proceed(chain.request());
+          }
+        })
+        .build();
+
     Call call = client.newCall(new Request.Builder()
         .url(server.url("/a"))
         .build());
     call.enqueue(callback);
     call.cancel();
+    latch.countDown();
+
     callback.await(server.url("/a")).assertFailure("Canceled", "Socket closed");
   }
 
@@ -3123,6 +3139,52 @@ public final class CallTest {
     } finally {
       logger.setLevel(original);
     }
+  }
+
+  @Test public void failedAuthenticatorReleasesConnection() throws IOException {
+    server.enqueue(new MockResponse()
+        .setResponseCode(401));
+
+    client.connectionPool().evictAll();
+    client = client.newBuilder()
+        .authenticator(new Authenticator() {
+          @Override public Request authenticate(Route route, Response response) throws IOException {
+            throw new IOException("IOException!");
+          }
+        })
+        .build();
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .build();
+
+    executeSynchronously(request)
+        .assertFailure(IOException.class);
+
+    assertEquals(1, client.connectionPool().idleConnectionCount());
+  }
+
+  @Test public void failedProxyAuthenticatorReleasesConnection() throws IOException {
+    server.enqueue(new MockResponse()
+        .setResponseCode(407));
+
+    client.connectionPool().evictAll();
+    client = client.newBuilder()
+        .proxyAuthenticator(new Authenticator() {
+          @Override public Request authenticate(Route route, Response response) throws IOException {
+            throw new IOException("IOException!");
+          }
+        })
+        .build();
+
+    Request request = new Request.Builder()
+        .url(server.url("/"))
+        .build();
+
+    executeSynchronously(request)
+        .assertFailure(IOException.class);
+
+    assertEquals(1, client.connectionPool().idleConnectionCount());
   }
 
   @Test public void httpsWithIpAddress() throws Exception {
